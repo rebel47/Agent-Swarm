@@ -1,0 +1,27 @@
+# Requires DOMAIN in .env, public DNS, and inbound ports 80/443.
+services:
+  backend:
+    ports: !reset []
+    environment:
+      ENVIRONMENT: production
+  worker:
+    environment:
+      ENVIRONMENT: production
+  frontend:
+    ports: !reset []
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN to the deployment hostname}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  caddy-data:
+  caddy-config:

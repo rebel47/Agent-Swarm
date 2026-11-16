@@ -1,0 +1,44 @@
+name: validation
+on: [push, pull_request]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: swarm
+          POSTGRES_PASSWORD: test-only
+          POSTGRES_DB: swarm_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U swarm -d swarm_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql+psycopg://swarm:test-only@localhost:5432/swarm_test
+      TEST_POSTGRES_URL: postgresql+psycopg://swarm:test-only@localhost:5432/swarm_test
+      TEST_REDIS_URL: redis://localhost:6379/15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r requirements.lock
+        working-directory: backend
+      - run: alembic upgrade head && alembic check
+        working-directory: backend
+      - run: pytest -q && pytest -c pyproject.toml ../benchmarks/test_fixtures.py -q
+        working-directory: backend
+      - run: ruff check app tests migrations && ruff format --check app tests migrations
+        working-directory: backend
+      - run: npm ci && npm run typecheck && npm run lint && npm run build && npm audit --omit=dev
+        working-directory: frontend
+      - run: docker compose --env-file .env.example config --quiet

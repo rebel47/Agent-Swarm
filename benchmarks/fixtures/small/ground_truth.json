@@ -1,0 +1,1 @@
+{"defects":[{"id":"empty-average","path":"calculator.py","line":3,"quote":"return sum(values) / len(values)","description":"Empty input divides by zero"}],"execution":"source-only"}
