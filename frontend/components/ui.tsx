@@ -19,6 +19,10 @@ const paths = {
   key: ["M10 14 3 21m3-3 3 3m5-11a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z"],
   alert: ["m12 3 10 18H2Zm0 6v5m0 3h.01"],
   refresh: ["M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M5 15a8 8 0 0 0 13 3"],
+  search: ["M21 21l-5-5", "M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0"],
+  download: ["M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"],
+  spark: ["m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"],
+  layers: ["m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 16l10 5 10-5"],
 };
 export type IconName = keyof typeof paths;
 export function navigateTabs(event: KeyboardEvent<HTMLElement>) {

@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import {useState} from "react";
 import type {AuditEvent, Job} from "../lib/api";
 import {dateLabel, elapsed, money, repositoryName, statusLabel} from "../lib/format";
+import {downloadReview} from "../lib/report";
 import {Findings} from "./findings";
 import {AgentInspector} from "./agent-inspector";
 import {ReviewDetails} from "./review-details";
@@ -22,6 +23,9 @@ export function ReviewView({job, audit, now, token, connection, onError, cancel,
   const seconds = Math.max(0, Math.floor((job.ended_at || now / 1000) - job.created_at));
   const spent = job.metrics.estimated_cost_usd, reserved = job.metrics.reserved_cost_usd;
   const finished = job.agents.filter(agent => agent.status === "COMPLETED").length;
+  const active = job.agents.filter(agent => agent.status === "RUNNING" || agent.status === "QUEUED");
+  const sourceSteps = job.agents.reduce((total, agent) => total + agent.steps, 0);
+  const priorityCount = job.report?.findings.filter(finding => ["critical", "high"].includes(finding.severity)).length || 0;
   const title = repositoryName(job.repository?.location || job.workspace_id);
   const timeline = audit.filter(event => showRequests || !event.type.startsWith("llm."));
   function eventTitle(event: AuditEvent) {
@@ -38,7 +42,8 @@ export function ReviewView({job, audit, now, token, connection, onError, cancel,
       <span>{job.repository?.revision?.slice(0, 7) || "Workspace source"}</span><span>&middot;</span>
       <Icon name="clock" size={14} /><span>{elapsed(seconds)}</span>
       {job.repository && <><span>&middot;</span><span>{job.repository.file_count} source files</span></>}</div></div>
-    <div className="review-actions"><button className="button button-secondary" onClick={() => setDetails(true)}>
+    <div className="review-actions">{job.report && <button className="button button-secondary" onClick={() => downloadReview(job)}>
+      <Icon name="download" size={15} />Export report</button>}<button className="button button-secondary" onClick={() => setDetails(true)}>
       <Icon name="settings" size={16} />Details</button>{job.status === "RUNNING" ?
       <button className="button button-quiet" disabled={cancelling} onClick={async () => {
         setCancelling(true); try {await cancel();} finally {setCancelling(false);}
@@ -50,7 +55,7 @@ export function ReviewView({job, audit, now, token, connection, onError, cancel,
       <p>{job.error.message}</p></div>}
     <section className="review-overview" aria-label="Review overview"><div><span className="overview-label">Findings</span>
       <strong>{job.report ? job.report.findings.length : "Pending"}</strong><span className="overview-note">
-        {job.report ? "Grounded in your source" : "Review in progress"}</span></div>
+        {job.report ? priorityCount ? `${priorityCount} high or critical` : "Source evidence attached" : "Review in progress"}</span></div>
       <div><span className="overview-label">Review team</span><strong>{finished}<span> / {job.agents.length}</span></strong>
         <button className="overview-link" onClick={() => setTab("team")}>specialists completed<Icon name="chevron" size={12} /></button></div>
       <div><span className="overview-label">Estimated spend</span><strong>{money(spent)}</strong>
@@ -75,10 +80,16 @@ export function ReviewView({job, audit, now, token, connection, onError, cancel,
             "You can inspect the team's work or start a new review."}</p>
           <div className="progress-stages"><span className="done"><Icon name="check" size={14} />Repository ready</span><i />
             <span className={job.status === "RUNNING" ? "current" : ""}>Inspecting source</span><i /><span>Final report</span></div>
+          {!!job.agents.length && <div className="progress-work" aria-label="Review progress"><div className="progress-work-heading">
+            <span>{finished} of {job.agents.length} specialists completed</span><span>{sourceSteps} execution steps</span></div>
+            <div className="specialist-progress" role="progressbar" aria-label="Specialists completed" aria-valuemin={0}
+              aria-valuemax={job.agents.length} aria-valuenow={finished}><span style={{width: `${finished / job.agents.length * 100}%`}} /></div>
+            {!!active.length && <p><span className="online-dot" />{active.slice(0, 2).map(agent => agent.role).join(" · ")}
+              {active.length > 2 ? ` +${active.length - 2} more` : ""}</p>}</div>}
           <button className="text-button" onClick={() => setTab("team")}>See the team at work<Icon name="arrow" size={14} /></button></div>)}
       {tab === "team" && <div className="team-view"><div className="section-title"><div><h2>A team shaped by the review</h2>
         <p>Each specialist follows a focused line of investigation.</p></div><span>{job.agents.length} specialists</span></div>
-        <AgentGraph job={job} select={agent => setSelectedId(agent.id)} />
+        <AgentGraph key={job.id} job={job} audit={audit} connection={connection} select={setSelectedId} />
         <div className="agent-list">{job.agents.map(agent => <button key={agent.id} className="agent-row" onClick={() => setSelectedId(agent.id)}>
           <span className="agent-avatar"><Icon name="code" size={17} /></span><span className="agent-row-copy"><strong>{agent.role}</strong>
             <small>{agent.objective}</small></span><StatusBadge status={agent.status} budget={agent.error?.code === "agent_budget_exhausted"} />

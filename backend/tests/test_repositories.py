@@ -87,6 +87,7 @@ def test_local_mapping_and_escape_rejection(settings, project, tmp_path):
 
 
 def test_local_snapshot_excludes_secrets_links_dependencies_and_binary(settings, project):
+    (project / ".gitignore").write_text(".env\nnode_modules/\n")
     (project / ".env").write_text("OPENAI_API_KEY=not-to-be-copied")
     (project / "node_modules").mkdir()
     (project / "node_modules" / "secret.js").write_text("secret")
@@ -100,8 +101,8 @@ def test_local_snapshot_excludes_secrets_links_dependencies_and_binary(settings,
     source_id = str(uuid.uuid4())
     info = RepositoryImporter(settings).prepare(source_id, source)
     snapshot = snapshot_path(settings, source_id)
-    assert {p.name for p in snapshot.iterdir()} == {"safe.py"}
-    assert info["revision"].startswith("sha256:") and info["file_count"] == 1
+    assert {p.name for p in snapshot.iterdir()} == {"safe.py", ".gitignore"}
+    assert info["revision"].startswith("sha256:") and info["file_count"] == 2
     (project / "safe.py").write_text("changed = True\n")
     assert (snapshot / "safe.py").read_text() == "value = 42\n"
     remove_snapshot(settings, source_id)
@@ -142,8 +143,10 @@ def test_real_git_snapshot_never_checks_out_or_runs_filters(settings, tmp_path, 
     runner.run(["init", str(seed)])
     (seed / "app.py").write_text("value = 42\n")
     (seed / ".env").write_text("secret=never-export")
+    (seed / ".gitignore").write_text(".env\n")
     (seed / ".gitattributes").write_text("*.py filter=malicious\n")
     runner.run(["add", "."], seed)
+    runner.run(["add", "--force", ".env"], seed)
     runner.run(
         ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-m", "fixture"], seed
     )
@@ -168,6 +171,7 @@ def test_real_git_snapshot_never_checks_out_or_runs_filters(settings, tmp_path, 
     info = RepositoryImporter(settings).prepare(source_id, source)
     snapshot = snapshot_path(settings, source_id)
     assert (snapshot / "app.py").read_text() == "value = 42\n"
+    assert (snapshot / ".gitignore").read_text() == ".env\n"
     assert not (snapshot / ".env").exists() and not (snapshot / ".git").exists()
     assert len(info["revision"]) == 40
     assert not snapshot_path(settings, source_id, ".git-work").exists()

@@ -1074,7 +1074,16 @@ class Store:
                         result = view.pop("result", None)
                         if result:
                             view["result_summary"] = result["summary"][:500]
-                snapshot["context_summary"] = summary.content if summary else None
+                evidence_keys = {"source_evidence", "source_evidence_index", "source_evidence_omitted"}
+                snapshot["context_summary"] = (
+                    {key: value for key, value in summary.content.items() if key not in evidence_keys}
+                    if summary
+                    else None
+                )
+                if summary:
+                    for key in evidence_keys:
+                        if key in summary.content:
+                            snapshot[key] = summary.content[key]
                 snapshot["tool_history"] = [
                     {"name": h.name, "arguments": h.arguments, "output": h.output, "created_at": h.created_at}
                     for h in reversed(history)

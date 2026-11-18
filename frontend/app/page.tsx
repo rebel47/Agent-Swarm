@@ -1,7 +1,7 @@
 "use client";
 import {useEffect, useState} from "react";
 import {api} from "../lib/api";
-import {startReview, type PreparationStage, type ReviewInput} from "../lib/reviews";
+import {draftFromReview, startReview, type PreparationStage, type ReviewDraft, type ReviewInput} from "../lib/reviews";
 import {useWorkspace} from "../hooks/use-workspace";
 import {useReview, useReviewSelection} from "../hooks/use-review";
 import {WorkspaceShell} from "../components/workspace-shell";
@@ -14,7 +14,7 @@ import {Brand, Icon} from "../components/ui";
 export default function Home() {
   const [error, setError] = useState(""), [settingsOpen, setSettingsOpen] = useState(false);
   const [stage, setStage] = useState<PreparationStage>("");
-  const [draft, setDraft] = useState<{location: string; objective: string}>();
+  const [draft, setDraft] = useState<ReviewDraft>();
   const [draftKey, setDraftKey] = useState(0);
   const workspace = useWorkspace(setError);
   const selection = useReviewSelection();
@@ -53,7 +53,7 @@ export default function Home() {
         {!selection.id ? <NewReview key={draftKey} sources={workspace.sources} stage={stage} start={start} remove={remove} initial={draft} /> :
           review.job ? <ReviewView key={review.job.id} job={review.job} audit={review.audit} token={workspace.token}
             now={review.now} connection={review.connection} onError={setError} cancel={cancel} again={() => {
-              setDraft({location: review.job?.repository?.location || "", objective: review.job?.objective || ""});
+              if (review.job) setDraft(draftFromReview(review.job));
               setDraftKey(key => key + 1); selection.select("");
             }} /> : <div className="review-loading" role="status"><span className="spinner" />Opening review...</div>}
       </WorkspaceShell>}

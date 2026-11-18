@@ -50,6 +50,11 @@ SourceService owns its task registry. Client disconnection does not abandon an a
 the task is shielded, persists its outcome and is awaited during application shutdown. Import
 policy, filesystem/Git calls and SQL are adapters rather than HTTP responsibilities.
 
+Exact source excerpts survive model-written history summaries in bounded, persisted citation
+context. File listings explicitly describe a filtered snapshot, and malformed provider responses
+receive safe diagnostics and bounded, budgeted correction turns. See
+[review reliability](review-reliability.md) for the evidence and recovery contracts.
+
 The former app.store, app.models, app.database, app.runtime, app.llm, app.repositories and
 app.broker modules are explicit compatibility facades. Existing workers, migrations and
 integrations can keep their imports. The API URLs and database schema are unchanged.

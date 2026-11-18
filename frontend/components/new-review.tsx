@@ -2,18 +2,18 @@
 import {useState, type FormEvent} from "react";
 import type {Workspaces} from "../lib/api";
 import {repositoryName} from "../lib/format";
-import {reviewPrompts, type PreparationStage, type ReviewInput} from "../lib/reviews";
+import {reviewPrompts, type PreparationStage, type ReviewDraft, type ReviewInput} from "../lib/reviews";
 import {Icon, navigateTabs} from "./ui";
 
 export function NewReview({sources, stage, start, remove, initial}: {
   sources: Workspaces; stage: PreparationStage; start: (input: ReviewInput) => Promise<void>;
-  remove: (id: string) => Promise<boolean>; initial?: {location: string; objective: string};
+  remove: (id: string) => Promise<boolean>; initial?: ReviewDraft;
 }) {
-  const [sourceType, setSourceType] = useState<"git" | "local" | "saved">("git");
-  const [location, setLocation] = useState(initial?.location || ""), [repositoryId, setRepositoryId] = useState("");
-  const [objective, setObjective] = useState(initial?.objective || ""), [ref, setRef] = useState("");
-  const [mode, setMode] = useState("adaptive"), [fixedCount, setFixedCount] = useState(3);
-  const [propose, setPropose] = useState(false), [removing, setRemoving] = useState(false);
+  const [sourceType, setSourceType] = useState<"git" | "local" | "saved">(initial?.sourceType || "git");
+  const [location, setLocation] = useState(initial?.location || ""), [repositoryId, setRepositoryId] = useState(initial?.repositoryId || "");
+  const [objective, setObjective] = useState(initial?.objective || reviewPrompts[0].text), [ref, setRef] = useState(initial?.ref || "");
+  const [mode, setMode] = useState(initial?.mode || "adaptive"), [fixedCount, setFixedCount] = useState(initial?.fixedCount || 3);
+  const [propose, setPropose] = useState(initial?.propose || false), [removing, setRemoving] = useState(false);
   const busy = !!stage || removing;
   const validSource = sourceType === "saved" ? !!repositoryId : !!location.trim();
   function submit(event: FormEvent) {
@@ -23,11 +23,12 @@ export function NewReview({sources, stage, start, remove, initial}: {
       objective, mode, fixedCount, propose});
   }
   return <div className="new-review-view">
-    <div className="page-intro"><span className="eyebrow">A fresh perspective</span><h1>What could your code do better?</h1>
-      <p>Bring a repository. Set a focus. We&apos;ll take a closer look.</p></div>
+    <div className="page-intro"><span className="eyebrow"><Icon name="spark" size={14} />A fresh perspective</span><h1>Ship with a second opinion.</h1>
+      <p>A focused code review. Clear findings. A path to the fix.</p></div>
+    <div className="review-setup">
     <form className="review-composer" onSubmit={submit}>
       <section className="composer-section"><div className="section-heading"><span className="step-number">01</span>
-        <div><h2>Choose your repository</h2><p>A public Git URL, local folder, or saved snapshot.</p></div></div>
+        <div><h2>Your repository</h2><p>Choose the code you want a fresh pair of eyes on.</p></div></div>
         <div className="source-tabs" role="tablist" aria-label="Repository source" onKeyDown={navigateTabs}>
           {([["git", "git", "Git repository"], ["local", "folder", "Local folder"], ["saved", "clock", "Saved"]] as const)
             .map(([value, icon, label]) => <button key={value} type="button" role="tab" aria-selected={sourceType === value}
@@ -54,14 +55,15 @@ export function NewReview({sources, stage, start, remove, initial}: {
         </>}
       </section>
       <section className="composer-section"><div className="section-heading"><span className="step-number">02</span>
-        <div><h2>Set the focus</h2><p>What would you like a second opinion on?</p></div></div>
-        <label className="sr-only" htmlFor="review-objective">Review brief</label>
+        <div><h2>Review focus</h2><p>Start with a preset, then make the brief your own.</p></div></div>
+        <div className="prompt-presets" aria-label="Review focus presets">{reviewPrompts.map(prompt =>
+          <button type="button" key={prompt.label} className={objective === prompt.text ? "selected" : ""}
+            aria-pressed={objective === prompt.text} disabled={busy} onClick={() => setObjective(prompt.text)}>
+            {objective === prompt.text && <Icon name="check" size={13} />}{prompt.label}</button>)}</div>
+        <div className="brief-label"><label htmlFor="review-objective">Review brief</label><span>Editable</span></div>
         <textarea id="review-objective" value={objective} disabled={busy} maxLength={8000} minLength={5} required
           placeholder="Find correctness bugs and missing edge cases. Explain the root cause and suggest a minimal fix..."
           onChange={event => setObjective(event.target.value)} />
-        <div className="prompt-presets"><span>Try a focus</span>{reviewPrompts.map(prompt =>
-          <button type="button" key={prompt.label} className={objective === prompt.text ? "selected" : ""}
-            disabled={busy} onClick={() => setObjective(prompt.text)}>{prompt.label}<Icon name="plus" size={12} /></button>)}</div>
       </section>
       <details className="review-options"><summary><span><Icon name="settings" size={16} />Review options</span>
         <Icon name="down" size={15} /></summary><div className="options-grid">
@@ -75,12 +77,20 @@ export function NewReview({sources, stage, start, remove, initial}: {
         <label className="checkbox-label"><input type="checkbox" checked={propose} disabled={busy}
           onChange={event => setPropose(event.target.checked)} />Include suggested patches</label>
       </div></details>
-      <footer className="composer-footer"><span><Icon name="shield" size={15} />Read only source review</span>
+      <footer className="composer-footer"><span><Icon name="shield" size={15} />Your code stays untouched</span>
         <button className="button button-primary" disabled={busy || !validSource || objective.trim().length < 5}>
           {stage ? <><span className="spinner" />{stage}...</> : <>Start review<Icon name="arrow" size={17} /></>}</button></footer>
     </form>
-    <div className="how-it-works"><div><span>01</span><h3>Share the context</h3><p>Tell us where to look and what matters.</p></div>
-      <div><span>02</span><h3>A team takes a look</h3><p>Specialists follow the evidence in your code.</p></div>
-      <div><span>03</span><h3>Leave with clarity</h3><p>Get findings with source references and fixes.</p></div></div>
+    <aside className="review-guide" aria-label="About your review"><span className="guide-label">A little more confidence.</span>
+      <h2>Less noise.<br />More signal.</h2><p>Get to the issues that deserve your attention.</p>
+      <div className="guide-points"><div><span><Icon name="code" size={17} /></span><div><h3>Grounded in source</h3>
+        <p>Findings link to exact files and lines, with the evidence attached.</p></div></div>
+        <div><span><Icon name="team" size={17} /></span><div><h3>A focused team</h3>
+          <p>Specialists follow the questions your review needs answered.</p></div></div>
+        <div><span><Icon name="check" size={17} /></span><div><h3>A practical next step</h3>
+          <p>Understand the impact, the uncertainty, and a suggested fix.</p></div></div></div>
+      <div className="guide-tip"><Icon name="spark" size={16} /><p><strong>Make it specific.</strong> Mention a feature, a risky flow, or a concern to help focus the review.</p></div>
+      <span className="guide-footnote"><Icon name="shield" size={13} />Patches are suggestions for you to review.</span>
+    </aside></div>
   </div>;
 }

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+from pydantic import ValidationError
 
 from ..config import Settings
 from ..observability import redact
@@ -23,9 +24,11 @@ class ProviderError(Exception):
         retryable: bool = False,
         status: int | None = None,
         request_id: str | None = None,
+        diagnostics: dict | None = None,
     ):
         super().__init__(message)
         self.code, self.retryable, self.status, self.request_id = code, retryable, status, request_id
+        self.diagnostics = diagnostics or {}
 
 
 @dataclass
@@ -64,7 +67,8 @@ def structured_tool(schema: type) -> dict:
 def result_tool() -> dict:
     return {
         "name": "submit_result",
-        "description": "Finish with evidence-backed structured results.",
+        "description": "Finish with evidence-backed results. Pass summary, findings and other "
+        "AgentResult fields directly as arguments; do not wrap them in a result object.",
         "parameters": AgentResult.model_json_schema(),
     }
 
@@ -221,8 +225,8 @@ class RealProvider:
             if raw.status != "completed" or len(calls) != 1 or calls[0].name != name:
                 raise ValueError("Expected one completed structured tool call")
             payload = schema.model_validate_json(calls[0].arguments)
-        except ValueError:
-            payload = {"validation_error": f"Invalid {name} structured output", "response_status": raw.status}
+        except ValueError as exc:
+            payload = self.invalid_response(raw, f"Invalid {name} structured output", exc)
         return Reply(payload, inp, out, details, raw.id, raw.model)
 
     async def decide(self, items, model):
@@ -236,16 +240,49 @@ class RealProvider:
             if raw.status != "completed" or len(calls) != 1:
                 raise ValueError("Expected exactly one completed tool call")
             call = calls[0]
+            if getattr(call, "status", "completed") != "completed":
+                raise ValueError("Function call was not completed")
+            if call.name not in {tool["name"] for tool in tools} | {"submit_result"}:
+                raise ValueError("Function name was not among the offered tools")
             if call.name == "submit_result":
                 payload = AgentTurn(result=AgentResult.model_validate_json(call.arguments))
             else:
                 payload = AgentTurn(call=ToolCall(name=call.name, arguments=json.loads(call.arguments)))
-        except ValueError:
-            payload = {
-                "validation_error": "Expected exactly one valid tool call or submit_result",
-                "response_status": raw.status,
-            }
+        except ValueError as exc:
+            payload = self.invalid_response(raw, "Expected exactly one valid tool call or submit_result", exc)
         return Reply(payload, inp, out, details, raw.id, raw.model)
+
+    @staticmethod
+    def invalid_response(raw, message, error):
+        """Return billable usage alongside safe diagnostics, never raw arguments or source."""
+        reason = getattr(getattr(raw, "incomplete_details", None), "reason", None)
+        refused = any(
+            getattr(part, "type", None) == "refusal"
+            for item in raw.output
+            for part in (getattr(item, "content", None) or [])
+        )
+        retryable = not refused and (raw.status == "completed" or reason == "max_output_tokens")
+        payload = {
+            "code": "response_refused"
+            if refused
+            else ("response_incomplete" if raw.status != "completed" else "invalid_tool_response"),
+            "validation_error": message,
+            "response_status": raw.status,
+            "incomplete_reason": reason,
+            "function_call_count": sum(item.type == "function_call" for item in raw.output),
+            "response_id": raw.id,
+            "reported_model": raw.model,
+            "retryable": retryable,
+        }
+        if isinstance(error, ValidationError):
+            payload["validation_errors"] = error.errors(
+                include_input=False, include_context=False, include_url=False
+            )[:10]
+        elif isinstance(error, json.JSONDecodeError):
+            payload["parse_error"] = {"type": "invalid_json", "line": error.lineno, "column": error.colno}
+        else:
+            payload["parse_error"] = {"type": "unexpected_call_shape", "message": str(error)[:200]}
+        return payload
 
     async def connectivity(self, model: str):
         policy = self.settings.policy(model)
