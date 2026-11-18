@@ -104,6 +104,67 @@ async function liveStream(page: Page, initial: Job) {
 const inProgress: Job = {...completed, status: "RUNNING", ended_at: null, report: null,
   agents: completed.agents.map((agent, index) => ({...agent, status: index ? "QUEUED" : "RUNNING", error: null, ended_at: null}))};
 
+test("the default live view shows the graph and becomes findings when the report arrives", async ({page}) => {
+  let current = structuredClone(inProgress);
+  await mockWorkspace(page, true, current);
+  await liveStream(page, current);
+  await page.route("**/api/v1/jobs/review-example", route => route.fulfill({contentType: "application/json", body: JSON.stringify(current)}));
+  await page.goto("/?job=review-example");
+  await expect(page.getByRole("tab", {name: "Live review", exact: true})).toHaveAttribute("aria-selected", "true");
+  const panel = page.getByRole("tabpanel", {name: "Live review"});
+  const graph = panel.getByRole("region", {name: "Review team graph"});
+  await expect(graph).toBeVisible();
+  await expect(page.getByRole("region", {name: "Review team graph"})).toHaveCount(1);
+  await expect(graph.locator(".react-flow__edge.animated")).toHaveCount(1);
+  await expect(page.locator(".review-brief")).toBeHidden();
+  await page.locator(".live-review-brief>summary").click();
+  await expect(page.locator(".review-brief")).toHaveText(objective);
+  await expect(page.locator(".review-brief")).toBeVisible();
+  await page.locator(".live-review-brief>summary").click();
+  const position = await graph.boundingBox();
+  expect(position!.y).toBeLessThan(700);
+  await page.screenshot({path: "test-results/live-review-desktop.png", fullPage: true});
+  await graph.getByRole("button", {name: "View Pipeline investigator's work"}).click();
+  await expect(page.getByRole("dialog", {name: "Pipeline investigator"})).toBeVisible();
+  await page.keyboard.press("Escape");
+  current = {...current, status: "COMPLETED", ended_at: 1700000135, report: completed.report,
+    agents: current.agents.map(agent => ({...agent, status: "COMPLETED", ended_at: 1700000135}))};
+  await page.evaluate(job => window.dispatchEvent(new CustomEvent("test-review-event", {detail: {type: "snapshot", data: job}})), current);
+  await expect(page.getByRole("heading", {name: "What we found"})).toBeVisible();
+  await expect(page.getByRole("tab", {name: "Findings", exact: true})).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", {name: "Live review", exact: true})).toHaveCount(0);
+  await expect(page.getByRole("region", {name: "Review team graph"})).toHaveCount(0);
+  await page.getByRole("tab", {name: "Team"}).click();
+  await expect(page.getByRole("region", {name: "Review team graph"})).toBeVisible();
+  await expect(page.locator(".agent-row")).toHaveCount(2);
+});
+
+test("a report arriving preserves a user's selected activity tab", async ({page}) => {
+  await mockWorkspace(page, true, inProgress);
+  await liveStream(page, inProgress);
+  await page.goto("/?job=review-example");
+  await expect(page.getByRole("tab", {name: "Live review", exact: true})).toHaveAttribute("aria-selected", "true");
+  await page.getByRole("tab", {name: "Activity", exact: true}).click();
+  await page.evaluate(job => window.dispatchEvent(new CustomEvent("test-review-event", {detail: {type: "snapshot", data: job}})), completed);
+  await expect(page.getByRole("tab", {name: "Findings", exact: true})).toHaveAttribute("aria-selected", "false");
+  await expect(page.getByRole("tab", {name: "Activity", exact: true})).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", {name: "Activity", exact: true})).toBeFocused();
+  await expect(page.getByRole("heading", {name: "Behind the review"})).toBeVisible();
+});
+
+test("a stopped review without a report keeps the graph available on the main tab", async ({page}) => {
+  const stopped = {...inProgress, status: "CANCELLED", ended_at: 1700000135,
+    agents: inProgress.agents.map(agent => ({...agent, status: "CANCELLED"}))};
+  await mockWorkspace(page, true, stopped);
+  await page.goto("/?job=review-example");
+  await expect(page.getByRole("heading", {name: "This review ended before a report was ready."})).toBeVisible();
+  const graph = page.getByRole("region", {name: "Review team graph"});
+  await expect(graph).toBeVisible();
+  await expect(graph.getByText("Review ended", {exact: true})).toBeVisible();
+  await expect(graph.locator(".node-working, .react-flow__edge.animated")).toHaveCount(0);
+  await expect(page.getByRole("button", {name: "View specialists"})).toBeVisible();
+});
+
 test("the team graph follows streamed review activity, keeps dragged positions and stops motion when finished", async ({page}) => {
   let current = structuredClone(inProgress);
   await mockWorkspace(page, true, current);
@@ -198,17 +259,19 @@ test("growing teams keep connections when specialists change sides or delegate w
   expect(warnings).toEqual([]);
 });
 
-test("team assembly shows only real specialists and supports mobile and reduced motion", async ({page}) => {
+test("the default mobile graph shows team assembly and respects reduced motion", async ({page}) => {
   await page.setViewportSize({width: 390, height: 844});
   await page.emulateMedia({reducedMotion: "reduce"});
   const planning = {...inProgress, agents: []};
   await mockWorkspace(page, true, planning);
   await liveStream(page, planning);
   await page.goto("/?job=review-example");
-  await page.getByRole("tab", {name: "Team"}).click();
+  await expect(page.getByRole("tab", {name: "Live review", exact: true})).toHaveAttribute("aria-selected", "true");
   const graph = page.getByRole("region", {name: "Review team graph"});
   await expect(graph.getByText("Planning", {exact: true})).toBeVisible();
   await expect(graph.locator(".react-flow__node")).toHaveCount(1);
+  const position = await graph.boundingBox();
+  expect(position!.y).toBeLessThan(700);
   await expect(graph.getByRole("button", {name: "Focus active"})).toBeDisabled();
   await page.evaluate(job => window.dispatchEvent(new CustomEvent("test-review-event", {detail: {type: "snapshot", data: job}})), inProgress);
   await expect(graph.locator(".react-flow__node")).toHaveCount(3);
@@ -217,7 +280,7 @@ test("team assembly shows only real specialists and supports mobile and reduced 
   await expect(active).toHaveCSS("animation-name", "none");
   await expect(graph.locator(".react-flow__edge.animated path").first()).toHaveCSS("animation-name", "none");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await page.screenshot({path: "test-results/team-live-mobile.png", fullPage: true});
+  await page.screenshot({path: "test-results/live-review-mobile.png", fullPage: true});
   await graph.getByRole("button", {name: "View Pipeline investigator's work"}).click();
   await expect(page.getByRole("dialog", {name: "Pipeline investigator"})).toBeVisible();
 });
@@ -258,7 +321,9 @@ test("a Git review submits the branch, brief and configured models without a rea
   expect(review?.workspace_id).toBe("prepared-source");
   expect(review?.allow_patch_proposals).toBe(true);
   expect(review?.model_overrides).toEqual({orchestrator: "gpt-6-sol", routine: "gpt-6-luna", verification: "gpt-6-sol", synthesis: "gpt-6-sol"});
-  await expect(page.getByText("Your code is getting a closer look.")).toBeVisible();
+  await expect(page.getByRole("heading", {name: "Reviewing your code"})).toBeVisible();
+  await expect(page.getByRole("tab", {name: "Live review", exact: true})).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("region", {name: "Review team graph"})).toBeVisible();
 });
 
 test("local folders and saved snapshots use the correct source flow", async ({page}) => {

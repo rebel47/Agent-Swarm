@@ -9,7 +9,13 @@ edit a review brief. An actionable general-review brief is selected by default; 
 security, performance, and edge-case presets help narrow the work. Branch selection, team mode and patch
 proposals are available under Review options. The source and brief remain fixed during preparation.
 
-Review pages initially show the report, three summary measures and the current status.
+Starting or reopening a running review opens the Live review tab with the interactive team
+graph immediately visible, including the coordinator before specialists have been created.
+The brief is expandable and summary measures sit below the live content. When the report
+arrives, the same tab becomes Findings and shows the report automatically; a user browsing
+Team or Activity keeps their chosen tab. Stopped reviews without a report keep the graph
+available for inspection. Completed reviews initially show the report, three summary measures
+and the current status.
 Findings are ordered by severity and can be filtered by severity and searched by title,
 description, or file path. Source evidence is visible on the first finding. Markdown export
 includes the full report, source revision, evidence, uncertainty, open questions, and proposed
@@ -17,7 +23,8 @@ patches, independently of the current filters. Code fences expand to preserve em
 Running reviews show actual completed-specialist counts, execution steps, and active roles.
 Review again restores the source type, repository location, branch, and brief; registered
 workspaces reopen in the saved-source tab.
-Findings, Team and Activity are separate tabs. The team graph is loaded only when needed.
+The main review, Team and Activity are separate tabs. Team retains the full graph and specialist
+list. The graph is loaded when a running review opens or a user visits Team.
 The graph follows live snapshots and recorded activity: reviewing specialists have pulsing
 status dots and animated connections, while queued, waiting, completed and stopped specialists
 retain distinct states. Motion pauses on a disconnected stream and ends with the review.
@@ -51,5 +58,7 @@ Git branches, local folders, saved sources, model allocation, completed reports,
 details, filtering, exports, repeat reviews, history search, mobile layout and dialog behavior.
 Graph checks stream snapshots and events through the real SSE reader to cover live activity,
 position retention, keyboard inspection, completion, disconnects, assembly and reduced motion.
+They also verify that starting a review exposes the graph without a tab change, that completion
+reveals findings automatically, and that completion preserves deliberate navigation to Activity.
 Screenshots are saved under frontend/test-results.
 To test a different local deployment set UI_BASE_URL.
