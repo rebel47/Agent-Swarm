@@ -189,11 +189,20 @@ def test_missing_usage_is_never_free():
 
 
 def test_defaults_and_startup_validate_all_allocations(settings):
-    defaults = Settings(_env_file=None)
+    defaults = Settings(
+        _env_file=None,
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url="",
+        api_token="test-only",
+        openai_api_key="test-only",
+    )
     assert (
         defaults.orchestrator_model == defaults.verification_model == defaults.synthesis_model == "gpt-6-sol"
     )
-    assert defaults.subagent_model == "gpt-6-luna" and defaults.max_total_cost_usd == 5
+    assert defaults.subagent_model == "gpt-6-luna" and defaults.max_total_cost_usd == 1000
+    assert defaults.shared_agent_budget is True
+    assert defaults.max_total_tokens == 100000000
+    assert defaults.max_agent_steps == 200 and defaults.max_supervisor_steps == 400
     assert (defaults.max_total_agents, defaults.max_concurrent_agents, defaults.max_agent_depth) == (
         100,
         10,

@@ -407,7 +407,7 @@ class Store:
                 raise Rejected("Children cannot escalate parent tool permissions")
             if job.mode != "adaptive" and "request_subagents" in spec.allowed_tools:
                 raise Rejected("Delegation tool is disabled in baseline modes")
-            if (
+            if not self.settings.shared_agent_budget and (
                 spec.max_steps > self.settings.max_agent_steps
                 or spec.token_budget > self.settings.max_agent_tokens
             ):
@@ -445,6 +445,14 @@ class Store:
                 status="CREATED",
                 spec={
                     **spec.model_dump(),
+                    **(
+                        {
+                            "max_steps": self.settings.max_agent_steps,
+                            "token_budget": self.settings.max_agent_tokens,
+                        }
+                        if self.settings.shared_agent_budget
+                        else {}
+                    ),
                     "parent_agent_id": parent_id,
                     "model": selected_model,
                 },
@@ -565,7 +573,7 @@ class Store:
             if budget.cost_usd + budget.reserved_cost_usd + minimum_cost > budget.max_cost_usd:
                 raise BudgetExhausted("Job estimated cost budget exhausted")
             limits = [(policy.context_tokens, "context"), (remaining, "job")]
-            if agent:
+            if agent and not self.settings.shared_agent_budget:
                 agent_remaining = agent.spec["token_budget"] - agent.tokens
                 if agent_remaining < minimum:
                     raise AgentBudgetExhausted("Agent token budget exhausted; supervisor may replan")
@@ -592,7 +600,11 @@ class Store:
                 budget.reserved_cost_usd,
             )
             account.authorize(
-                charge, policy.context_tokens, agent.spec["token_budget"] - agent.tokens if agent else None
+                charge,
+                policy.context_tokens,
+                agent.spec["token_budget"] - agent.tokens
+                if agent and not self.settings.shared_agent_budget
+                else None,
             )
             # Refresh between bounded requests under the same fenced claim.
             # A turn may summarize then act, or plan then synthesize.
@@ -705,7 +717,11 @@ class Store:
             raise Rejected("Agent already uses the requested stronger model")
         budget = await session.get(Budget, job.id)
         policy = self.settings.policy(selected)
-        bound = min(policy.context_tokens, agent.spec["token_budget"] - agent.tokens)
+        bound = (
+            policy.context_tokens
+            if self.settings.shared_agent_budget
+            else min(policy.context_tokens, agent.spec["token_budget"] - agent.tokens)
+        )
         input_bound = bound - policy.max_output_tokens
         cost = (
             max(0, input_bound) * policy.input_per_million * policy.cache_write_multiplier
@@ -1056,14 +1072,26 @@ class Store:
                     or 0
                 )
                 remaining_steps = agent.spec["max_steps"] - agent.steps
-                remaining_tokens = agent.spec["token_budget"] - agent.tokens
+                remaining_tokens = (
+                    snapshot["metrics"]["limits"]["tokens"]
+                    - snapshot["metrics"]["tokens"]
+                    - snapshot["metrics"]["reserved_tokens"]
+                    if self.settings.shared_agent_budget
+                    else agent.spec["token_budget"] - agent.tokens
+                )
                 output_limit = self.settings.policy(agent.spec["model"]).max_output_tokens
                 allowance = AgentAllowance(remaining_steps, remaining_tokens, last_input, output_limit)
                 snapshot["execution_budget"] = {
+                    "scope": "job" if self.settings.shared_agent_budget else "agent",
                     "remaining_steps": remaining_steps,
                     "remaining_tokens": remaining_tokens,
                     "finish_required": allowance.finish_required,
-                    "note": "Cumulative allowance includes repeated input and output; submit_result uses a turn.",
+                    "note": (
+                        "All specialists share the remaining review token pool; no individual token cap applies. "
+                        if self.settings.shared_agent_budget
+                        else "Individual cumulative token cap applies. "
+                    )
+                    + "Repeated input and output count toward usage; submit_result uses a turn.",
                 }
                 dependencies = next(a["dependencies"] for a in snapshot["agents"] if a["id"] == agent_id)
                 related = set(dependencies) | {

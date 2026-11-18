@@ -1,5 +1,18 @@
 # Review evidence and response recovery
 
+Normal reviews use a shared token budget (`SHARED_AGENT_BUDGET=true`). The supervisor
+cannot strand a specialist by assigning a small cumulative `token_budget` or turn count:
+the runtime uses the review pool and administrator turn allowance. The default pool is
+100 million tokens and $1,000, with 200 specialist turns, 400 supervisor turns and six
+hours per review. A generous allowance is never an instruction to consume it.
+Counting, generation reservations, context summaries, remaining-budget prompts and model
+escalation all use the shared scope, including resumed checkpoints with older small specs.
+Job limits still include concurrent reservations, actual usage, cache charges and unknown
+outcomes. Provider context capacity remains independent of cumulative execution allowance.
+`SHARED_AGENT_BUDGET=false` retains strict individual caps for intentional budget experiments.
+Changing configuration does not rewrite completed review history or stored job-wide limits;
+the higher job pool applies to new reviews. Update existing `.env` overrides before restarting.
+
 Source observations are durable `ToolExecution` records. When an agent's older history is
 summarized, the runtime also copies the exact numbered lines into a separate `source_evidence`
 collection. This collection is deterministic: it does not depend on the summary model

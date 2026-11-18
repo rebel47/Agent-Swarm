@@ -42,6 +42,8 @@ def settings(tmp_path, monkeypatch):
         workspaces={"test": str(repo)},
         repository_cache_dir=str(tmp_path / "snapshots"),
         local_repository_roots={},
+        shared_agent_budget=False,
+        max_total_tokens=1000000,
         max_agent_tokens=60000,
         max_agent_steps=20,
         max_concurrent_agents=2,

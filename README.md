@@ -229,6 +229,15 @@ secure execution sandbox is provisioned. No code is committed, pushed or deploye
 Set MAX_TOTAL_AGENTS, MAX_CONCURRENT_AGENTS, MAX_AGENT_DEPTH, MAX_TOTAL_TOKENS,
 MAX_TOTAL_COST_USD, MAX_AGENT_STEPS, MAX_AGENT_TOKENS and MAX_SUPERVISOR_STEPS.
 These are administrator limits, not heuristics for choosing an adaptive team size.
+Normal reviews default to `SHARED_AGENT_BUDGET=true`: specialists draw from a shared
+100,000,000-token / $1,000 review pool instead of model-chosen individual token caps.
+The runtime assigns each specialist the administrator's 200-turn allowance, regardless
+of smaller limits proposed by the supervisor or a delegating parent. Reviews have up
+to 400 supervisor turns and six hours. These generous allowances are ceilings, not
+spending targets; agents should finish as soon as the evidence is sufficient.
+`MAX_AGENT_TOKENS` applies as an individual cap only with `SHARED_AGENT_BUDGET=false`,
+which preserves strict per-agent limits for controlled benchmarks.
+Existing `.env` values override defaults: update them along with `.env.example` when upgrading.
 MAX_JOB_SECONDS and MAX_ACTIVE_JOBS bound overall lifetime and admission.
 WORKER_SLOTS controls each worker's local capacity.
 
@@ -240,8 +249,8 @@ Late reported usage replaces unknown charges once. Unaffordable job-level calls 
 network inference. Costs are estimates using administrator-configured rates, not a guarantee about the provider's
 invoice, discounts or provider-side billing. Bounds include schema and context overhead.
 Generation reservations use the OpenAI input token counting endpoint plus formatting headroom,
-rather than treating bytes as tokens. An individual agent's exhausted allowance fails that
-branch so the supervisor can replan. Agents see their remaining steps/tokens and must submit
+rather than treating bytes as tokens. In strict mode, an individual agent's exhausted allowance
+fails that branch so the supervisor can replan. Agents see the allowance's scope and their remaining steps/tokens and must submit
 a result on their final turn or when their remaining tokens require finishing.
 Long tool histories use budgeted economical-model summaries, persisted with continuation
 watermarks. Context is also bounded explicitly; original outputs remain in artifact rows.

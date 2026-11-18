@@ -46,9 +46,13 @@ CREATE_TASKS/SPAWN_AGENTS/REQUEST_VERIFICATION/REPLAN must include actionable ag
 EXECUTE_DIRECTLY schedules exactly one investigator. FINISH/SYNTHESIZE_RESULTS requests a separate final synthesis. Do not claim tests were run.
 WAIT_FOR_RESULTS is valid only while work is pending. CANCEL_AGENT names actual agent IDs.
 Task keys and objectives must be unique; dependencies reference task keys in this job.
-Available tools and bounds are provided in context. max_steps and token_budget must not
-exceed administrator limits. Child tool permissions cannot exceed their parent's.
-token_budget is the agent's cumulative input AND output across every turn, including
+Available tools and bounds are provided in context. When shared_agent_budget is enabled,
+all specialists draw from the review's shared token pool. The runtime assigns administrator
+turn limits and ignores model-proposed smaller token/turn allocations. Finish assignments
+naturally once the evidence is sufficient; a generous allowance is not a target to spend.
+Otherwise max_steps and token_budget must not exceed administrator limits.
+Child tool permissions cannot exceed their parent's.
+In strict mode, token_budget is the agent's cumulative input AND output across every turn, including
 repeated context and summarization. It is not a per-request context size. For multi-turn
 source reviews use the administrator max_agent_tokens allowance; control spending with
 focused assignments, small teams, economical models and bounded max_steps. A smaller
@@ -85,8 +89,9 @@ appear in context and can be retrieved with retrieve_agent_result. Do not duplic
 If a tool or decision is rejected, use the observed error to correct it. If evidence is
 insufficient, report uncertainty. Patch proposals are unified diffs for human review only.
 Never modify the authorized repository. Use the economical model for routine work.
-execution_budget reports your remaining turns and cumulative tokens. Each request repeats
-input context and consumes that allowance. Leave room to submit_result; finish with explicit
+execution_budget reports your remaining turns, token allowance and its scope. A job-scoped
+allowance is shared by the whole team, with no smaller individual token cap. Each request
+repeats input context and consumes that allowance. Leave room to submit_result; finish with explicit
 uncertainty for unreviewed areas rather than spending the last allowance on another read.
 When finish_required is true, only submit_result is available. Use the evidence already read.
 source_evidence retains exact numbered source lines across history summaries; cite these
@@ -137,6 +142,7 @@ class Runtime:
         data["administrator_limits"] = {
             "max_agent_steps": self.settings.max_agent_steps,
             "max_agent_tokens": self.settings.max_agent_tokens,
+            "shared_agent_budget": self.settings.shared_agent_budget,
             "allowed_models": list(self.settings.model_policies),
             "fixed_agent_count": context.get("fixed_agent_count"),
             "host_execution_enabled": False,
@@ -324,9 +330,7 @@ class Runtime:
         # Keep the latest tool observation verbatim; summarize only older observations.
         model = context["metrics"]["model_allocation"]["routine"]
         policy = self.settings.policy(model)
-        async with self.store.db.sessions() as session:
-            agent = await session.get(Agent, claim.agent_id)
-            remaining = agent.spec["token_budget"] - agent.tokens
+        remaining, _scope = await self.store.inference_capacity(claim, model)
         # Summarize a batch that fits, advancing only over observations actually sent.
         # The remaining observations stay in durable history for the next turn.
         source = {"previous_summary": context.get("context_summary"), "observations": []}
